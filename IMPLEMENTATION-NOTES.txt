@@ -1,0 +1,19 @@
+VirtualLab implementation batch
+
+Included changes:
+1. Dashboard restores the saved login session after refresh.
+2. Practice page lists six starter problems and opens the Code Editor.
+3. Teacher can create assignments; records persist in this browser's localStorage.
+4. Assignment list is shown to student/teacher roles in the same browser.
+5. Practice starts are recorded in a submission/activity history in localStorage.
+6. Dashboard metrics and recent activity use saved local activity instead of fixed demo numbers.
+7. Student list is based on local browser activity (prototype behavior).
+8. JWT bearer token authentication filter is added for protected backend endpoints.
+9. /error is permitted so a controller exception does not get masked by a secondary 403.
+
+Important limitations:
+- Assignment, practice activity and submission history are browser-local prototype data, not database-backed yet. Different browsers/devices do not share this data.
+- Code execution still uses the configured Judge0 CE endpoint. The project build could not be verified in this environment because the uploaded node_modules lacked the platform-specific Rolldown native binding. Reinstall dependencies on Windows if Vite reports a native binding issue: delete node_modules and run npm install.
+- Backend database settings in application.properties were included from the provided project. Keep credentials private and rotate them if they are real credentials.
+
+Apply: unzip the provided package, then copy the `virtuallab-frontend` and `virtuallab-backend (1)/virtuallab-backend` folders' changed source files into the matching existing project paths. Do not overwrite your working folder until you have a backup.

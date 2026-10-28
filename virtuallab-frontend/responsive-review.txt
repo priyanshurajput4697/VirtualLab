@@ -1,0 +1,409 @@
+﻿
+
+========== .\src\App.jsx ==========
+
+import { useEffect, useMemo, useState } from "react";
+import "./App.css";
+import CodeEditor from "./CodeEditor";
+const BASE = "http://localhost:8080/api";
+const studentMenu = [["â–¦","Dashboard"],["</>","Code Editor"],["â—ˆ","Practice"],["â–¤","Assignments"],["â–£","Submissions"],["â™™","Profile"]];
+const teacherMenu = [["â–¦","Dashboard"],["â–¤","Assignments"],["â™™","Students"],["â–£","Submissions"],["â™™","Profile"]];
+const problems = [
+ {id:"p1",title:"Hello, VirtualLab!",difficulty:"Easy",description:"Print Hello, VirtualLab! to output."},
+ {id:"p2",title:"Sum of Two Numbers",difficulty:"Easy",description:"Read two integers and print their sum."},
+ {id:"p3",title:"Even or Odd",difficulty:"Easy",description:"Read an integer and print Even or Odd."},
+ {id:"p4",title:"Largest of Three",difficulty:"Medium",description:"Read three numbers and print the largest."},
+ {id:"p5",title:"Factorial",difficulty:"Medium",description:"Read a non-negative integer and print its factorial."},
+ {id:"p6",title:"Reverse a String",difficulty:"Medium",description:"Read a string and print it in reverse."}
+];
+function readSaved(){try{return JSON.parse(localStorage.getItem("virtuallab-user")||sessionStorage.getItem("virtuallab-user")||"null")}catch{return null}}
+async function api(path, user, options={}) { const headers={...(options.body?{"Content-Type":"application/json"}:{}),...(user?.token?{Authorization:`Bearer ${user.token}`}:{}) ,...(options.headers||{})}; const r=await fetch(`${BASE}${path}`,{...options,headers}); const raw=await r.text(); let data={};try{data=raw?JSON.parse(raw):{}}catch{data={message:raw}} if(!r.ok)throw new Error(data.message||data.error||`Request failed (${r.status})`);return data; }
+export default function App(){
+ const [user,setUser]=useState(readSaved); const [page,setPage]=useState(()=>readSaved()?"app":"login");
+ const [authPage,setAuthPage]=useState("login"),[role,setRole]=useState("STUDENT"),[name,setName]=useState(""),[email,setEmail]=useState(""),[password,setPassword]=useState(""),[confirm,setConfirm]=useState(""),[remember,setRemember]=useState(true),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
+ const [active,setActive]=useState("Dashboard"),[search,setSearch]=useState(""),[assignments,setAssignments]=useState([]),[submissions,setSubmissions]=useState([]),[notice,setNotice]=useState(""),[loadingData,setLoadingData]=useState(false);
+ const [title,setTitle]=useState(""),[description,setDescription]=useState(""),[dueDate,setDueDate]=useState("");
+ const [gradeDrafts,setGradeDrafts]=useState({});
+ const isTeacher=user?.role==="TEACHER";
+ async function loadData(){if(!user?.token)return;setLoadingData(true);try{const [a,s]=await Promise.all([api("/assignments",user),api("/submissions",user)]);setAssignments(Array.isArray(a)?a:[]);setSubmissions(Array.isArray(s)?s:[]);}catch(e){setNotice(e.message+" â€” check backend/database and sign in again if needed.");}finally{setLoadingData(false)}}
+ useEffect(()=>{if(user)loadData()},[user?.token]);
+ async function authSubmit(e){e.preventDefault();setError("");setMessage("");if(authPage==="register"&&password!==confirm){setError("Passwords do not match.");return}if(password.length<8){setError("Password must contain at least 8 characters.");return}setBusy(true);try{if(authPage==="register"){await api("/auth/register",null,{method:"POST",body:JSON.stringify({name,email,password,role})});setMessage("Account created. Log in with your new account.");setAuthPage("login");setPassword("");setConfirm("");}else{const d=await api("/auth/login",null,{method:"POST",body:JSON.stringify({email,password})});const u={id:d.id,name:d.name,email:d.email,role:d.role,token:d.token};setUser(u);(remember?localStorage:sessionStorage).setItem("virtuallab-user",JSON.stringify(u));(remember?sessionStorage:localStorage).removeItem("virtuallab-user");setPage("app");setActive("Dashboard");setSearch("");}}catch(e){setError(e.message.includes("Failed to fetch")?"Cannot connect to backend at localhost:8080. Start Spring Boot first.":e.message)}finally{setBusy(false)}}
+ function logout(){localStorage.removeItem("virtuallab-user");sessionStorage.removeItem("virtuallab-user");localStorage.removeItem("virtuallab-selected-problem");setUser(null);setPage("login");setAuthPage("login");setPassword("");setActive("Dashboard");setNotice("")}
+ async function createAssignment(e){e.preventDefault();setNotice("Saving assignment...");try{const a=await api("/assignments",user,{method:"POST",body:JSON.stringify({title:title.trim(),description:description.trim(),dueDate})});setAssignments(prev=>[a,...prev]);setTitle("");setDescription("");setDueDate("");setNotice("Assignment saved. Students can now see it after refreshing.")}catch(e){setNotice(e.message)}}
+ async function saveGrade(submission){
+  const draft=gradeDrafts[submission.id]||{};
+  const marks=Number(draft.marks);
+  if(!Number.isInteger(marks)||marks<0||marks>10){setNotice("Marks must be a whole number from 0 to 10.");return}
+  try{await api(`/submissions/${submission.id}/grade`,user,{method:"PATCH",body:JSON.stringify({marks,teacherFeedback:draft.feedback||""})});setNotice("Marks and teacher advice saved.");await loadData();}
+  catch(e){setNotice(`Could not save review: ${e.message}`)}
+ }
+ function openProblem(p){localStorage.setItem("virtuallab-selected-problem",JSON.stringify(p));setActive("Code Editor")}
+ const q=search.trim().toLowerCase();
+ const filteredAssignments=useMemo(()=>assignments.filter(a=>`${a.title} ${a.description} ${a.createdBy||""}`.toLowerCase().includes(q)),[assignments,q]);
+ const filteredProblems=useMemo(()=>problems.filter(p=>`${p.title} ${p.description} ${p.difficulty}`.toLowerCase().includes(q)),[q]);
+ const filteredSubs=useMemo(()=>submissions.filter(s=>`${s.assignmentTitle||s.title||""} ${s.studentName||s.student||""} ${s.studentEmail||s.email||""} ${s.language||""} ${s.status||""}`.toLowerCase().includes(q)),[submissions,q]);
+ const streak=useMemo(()=>{try{const days=[...new Set(submissions.filter(s=>!isTeacher?s.studentEmail===user?.email:true).map(s=>new Date(s.submittedAt||s.createdAt).toDateString()))].map(d=>new Date(d)).sort((a,b)=>b-a);if(!days.length)return 0;let n=1;for(let i=1;i<days.length;i++){const diff=Math.round((days[i-1]-days[i])/86400000);if(diff===n)n++;else break}return n}catch{return 0}},[submissions,user?.email,isTeacher]);
+ if(!user||page!=="app")return <main className="auth-page"><div className="auth-orb orb-one"/><div className="auth-orb orb-two"/><header className="brand"><h1>Virtual<span>Lab</span></h1><p>Code. Learn. Practice. Grow.</p></header><section className={`auth-card ${authPage==="register"?"register-card":""}`}><div className="auth-icon">â™Ÿ</div><h2>{authPage==="login"?"Login":"Create Your Account"}</h2><p className="auth-subtitle">{authPage==="login"?"Welcome back! Please login to continue.":"Join as a Student or Teacher."}</p>{authPage==="register"&&<div className="role-options"><button type="button" className={`role-option ${role==="STUDENT"?"selected":""}`} onClick={()=>setRole("STUDENT")}><strong>I'm a Student</strong><small>Solve assignments and practice.</small></button><button type="button" className={`role-option ${role==="TEACHER"?"selected":""}`} onClick={()=>setRole("TEACHER")}><strong>I'm a Teacher</strong><small>Create work and review submissions.</small></button></div>}<form className="auth-form" onSubmit={authSubmit}>{authPage==="register"&&<label className="input-wrap"><input placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} required/></label>}<label className="input-wrap"><input type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label className="input-wrap"><input type="password" placeholder="Password (minimum 8 characters)" value={password} onChange={e=>setPassword(e.target.value)} minLength={8} required/></label>{authPage==="register"&&<label className="input-wrap"><input type="password" placeholder="Confirm password" value={confirm} onChange={e=>setConfirm(e.target.value)} required/></label>}{authPage==="login"&&<label className="remember-option"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember me</label>}{message&&<p className="success-message">{message}</p>}{error&&<p className="error-message">{error}</p>}<button className="gradient-button" disabled={busy}>{busy?"Please wait...":authPage==="login"?"Login â†’":"Register â†’"}</button></form><div className="auth-footer">{authPage==="login"?<>Don't have an account? <button className="text-button" onClick={()=>{setAuthPage("register");setError("");setMessage("")}}>Register â†’</button></>:<>Already registered? <button className="text-button" onClick={()=>{setAuthPage("login");setError("");setMessage("")}}>Login â†’</button></>}</div></section><footer className="page-footer">Â© 2026 VirtualLab</footer></main>;
+ const menu=isTeacher?teacherMenu:studentMenu;
+ const allSearchResults=[...filteredAssignments.map(a=>({type:"Assignment",title:a.title,description:a.description,action:()=>openProblem(a)})),...filteredProblems.map(p=>({type:"Practice",title:p.title,description:p.description,action:()=>openProblem(p)})),...filteredSubs.map(s=>({type:"Submission",title:s.assignmentTitle||s.title||"Code submission",description:`${s.studentName||s.student||"Student"} Â· ${s.language||""} Â· ${s.status||"Submitted"}`,action:()=>setActive("Submissions")}))];
+ return <main className="dashboard-page"><aside className="sidebar"><div className="sidebar-brand"><span className="mini-logo">&lt;/&gt;</span> Virtual<span>Lab</span></div><div className="sidebar-label">WORKSPACE</div><nav className="sidebar-nav">{menu.map(([ic,label])=><button key={label} className={`nav-item ${active===label?"active":""}`} onClick={()=>{setActive(label);setNotice("")}}><span>{ic}</span>{label}</button>)}</nav><div className="sidebar-bottom"><div className="user-mini"><div className="avatar">{user.name?.[0]?.toUpperCase()}</div><div><strong>{user.name}</strong><small>{isTeacher?"Teacher":"Student"}</small></div></div><button className="nav-item logout-button" onClick={logout}><span>â†ª</span> Logout</button></div></aside><section className="dashboard-main"><header className="topbar"><div className="search-box"><span>âŒ•</span><input aria-label="Search dashboard" placeholder="Search dashboard, assignments, practice, submissions..." value={search} onChange={e=>setSearch(e.target.value)}/>{search&&<button className="text-button" onClick={()=>setSearch("")}>Clear</button>}</div><div className="topbar-right"><div className="top-role"><span className="mini-logo">&lt;/&gt;</span>{isTeacher?"Teacher":"Student"}</div></div></header><div className="dashboard-content">
+ {search.trim()?<section className="panel section-panel"><div className="eyebrow">GLOBAL SEARCH</div><h1>Search results</h1><p className="section-description">Results update as you type across assignments, practice problems, and submissions.</p>{allSearchResults.length?allSearchResults.map((r,i)=><article className="activity-row" key={`${r.type}-${r.title}-${i}`}><div className="activity-icon green">âŒ•</div><div><strong>{r.title}</strong><small>{r.type} Â· {r.description}</small></div><button className="start-button" onClick={r.action}>{r.type==="Submission"?"View":"Open"} â†’</button></article>):<div className="empty-state"><h3>No matching results</h3><p>Try another title, language, student name or keyword.</p></div>}</section>:
+ active==="Dashboard"?<><div className="welcome-row"><div><div className="eyebrow">YOUR WORKSPACE</div><h1>Welcome back, {user.name?.split(" ")[0]}! <span className="wave">âœ¦</span></h1><p className="section-description">{isTeacher?"Create assignments and review your students' submitted code.":"Practice coding, solve assignments, and build your streak."}</p></div><button className="gradient-button" onClick={()=>setActive(isTeacher?"Assignments":"Practice")}>{isTeacher?"Create Assignment â†’":"Start Practicing â†’"}</button></div><div className="stats-grid"><article className="stat-card"><div className="stat-icon blue">â–¤</div><div><strong>{assignments.length}</strong><p>Assignments</p></div></article><article className="stat-card"><div className="stat-icon purple">â–£</div><div><strong>{submissions.length}</strong><p>{isTeacher?"Student Submissions":"My Submissions"}</p></div></article><article className="stat-card"><div className="stat-icon green">âœ“</div><div><strong>{streak}</strong><p>Day Streak</p></div></article></div><section className="panel section-panel"><div className="eyebrow">{isTeacher?"RECENT SUBMISSIONS":"YOUR ASSIGNMENTS"}</div><h2>{isTeacher?"Latest student work":"Assignments from your teachers"}</h2>{isTeacher?submissions.slice(0,5).map(s=><div className="activity-row" key={s.id}><div className="activity-icon green">âœ“</div><div><strong>{s.assignmentTitle||s.title||"Practice submission"}</strong><small>{s.studentName||s.studentEmail} Â· {s.language} Â· {s.status}</small></div><button className="start-button" onClick={()=>setActive("Submissions")}>Review â†’</button></div>):assignments.slice(0,5).map(a=><div className="activity-row" key={a.id}><div className="activity-icon green">â–¤</div><div><strong>{a.title}</strong><small>{a.description}</small></div><button className="start-button" onClick={()=>openProblem(a)}>Solve â†’</button></div>)}{!assignments.length&&!submissions.length&&<p>No activity yet. Use the menu to get started.</p>}</section></>:
+ active==="Code Editor"?<CodeEditor user={user} onSubmission={loadData} onBack={()=>setActive("Assignments")}/>:
+ active==="Practice"?<section className="panel section-panel"><div className="eyebrow">LEARN BY DOING</div><h1>Practice Problems</h1><p className="section-description">Choose a problem to open it in the editor.</p><div className="dashboard-grid">{filteredProblems.map(p=><article className="panel" key={p.id}><h3>{p.title}</h3><p>{p.description}</p><small>{p.difficulty}</small><button className="start-button" onClick={()=>openProblem(p)}>Open in Editor â†’</button></article>)}</div>{!filteredProblems.length&&<p>No practice problems match the search.</p>}</section>:
+ active==="Assignments"?<section className="panel section-panel"><div className="eyebrow">CLASS WORK</div><h1>Assignments</h1>{isTeacher&&<form className="auth-form" onSubmit={createAssignment}><label className="input-wrap"><input placeholder="Assignment title" value={title} onChange={e=>setTitle(e.target.value)} required/></label><label className="input-wrap"><textarea placeholder="Problem statement / instructions" value={description} onChange={e=>setDescription(e.target.value)} rows={3} required/></label><label className="input-wrap"><span>Due date</span><input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)}/></label><button className="gradient-button">Create Assignment â†’</button></form>}{notice&&<p className="success-message">{notice}</p>}{loadingData&&<p>Loading...</p>}<div className="dashboard-grid">{filteredAssignments.map(a=><article className="panel" key={a.id}><h3>{a.title}</h3><p>{a.description}</p><small>Created by {a.createdBy||"Teacher"}{a.dueDate?` Â· Due ${a.dueDate}`:""}</small>{!isTeacher&&<button className="start-button" onClick={()=>openProblem(a)}>Start Assignment â†’</button>}</article>)}</div>{!filteredAssignments.length&&<div className="empty-state"><h3>No assignments found</h3><p>{isTeacher?"Create the first assignment above.":"Your teacher's assignments will appear here."}</p></div>}</section>:
+ active==="Submissions"?<section className="panel section-panel"><div className="eyebrow">SUBMISSION HISTORY</div><h1>{isTeacher?"Student Submissions":"My Submissions"}</h1><p className="section-description">{isTeacher?"Review each student's submitted code, language, output and status.":"Your code and output are saved to the database when you submit."}</p>{filteredSubs.map(s=><article className="panel submission-card" key={s.id}><h3>{s.assignmentTitle||s.title||"Code submission"}</h3><p>{s.studentName||s.studentEmail} Â· {s.language} Â· {new Date(s.submittedAt||s.createdAt).toLocaleString()}</p><p><strong>Run status:</strong> {s.status||"Submitted"}</p><details><summary>Submitted code</summary><pre className="vl-output-text">{s.sourceCode||s.code||"No code stored"}</pre></details><details><summary>Program input</summary><pre className="vl-output-text">{s.stdin||"(No input)"}</pre></details><details open><summary>Program output / error</summary><pre className="vl-output-text">{s.output||"(No output captured)"}</pre></details>{isTeacher?<div className="grading-panel"><h4>Review submission Â· marks out of 10</h4><label className="input-wrap"><span>Marks (0â€“10)</span><input type="number" min="0" max="10" step="1" value={gradeDrafts[s.id]?.marks ?? s.marks ?? ""} onChange={e=>setGradeDrafts(prev=>({...prev,[s.id]:{...(prev[s.id]||{}),marks:e.target.value,feedback:prev[s.id]?.feedback??s.teacherFeedback??""}}))} placeholder="e.g. 8" required /></label><label className="input-wrap"><span>Advice / feedback for student</span><textarea rows={3} value={gradeDrafts[s.id]?.feedback ?? s.teacherFeedback ?? ""} onChange={e=>setGradeDrafts(prev=>({...prev,[s.id]:{...(prev[s.id]||{}),marks:prev[s.id]?.marks??s.marks??"",feedback:e.target.value}}))} placeholder="What is correct? What should be improved?" /></label><button className="gradient-button" onClick={()=>saveGrade(s)}>Save marks & advice</button>{s.reviewedAt&&<small>Last reviewed: {new Date(s.reviewedAt).toLocaleString()}</small>}</div>:<div className="student-review"><h4>Teacher's review</h4><p><strong>Marks:</strong> {s.marks==null?"Not graded yet":`${s.marks}/10`}</p><p><strong>Advice:</strong> {s.teacherFeedback||"Your teacher has not added advice yet."}</p>{s.reviewedAt&&<small>Reviewed: {new Date(s.reviewedAt).toLocaleString()}</small>}</div>}</article>)}{!filteredSubs.length&&<div className="empty-state"><h3>No submissions yet</h3><p>Submissions appear here after students run and submit code.</p></div>}</section>:
+ active==="Students"?<section className="panel section-panel"><div className="eyebrow">CLASS MANAGEMENT</div><h1>Students</h1>{[...new Map(submissions.map(s=>[s.studentEmail,{name:s.studentName,email:s.studentEmail}])).values()].map(s=><article className="activity-row" key={s.email}><div className="avatar">{s.name?.[0]?.toUpperCase()||"S"}</div><div><strong>{s.name||"Student"}</strong><small>{s.email}</small></div><span>{submissions.filter(x=>x.studentEmail===s.email).length} submissions</span></article>)}{!submissions.length&&<p>No student submissions yet. Students appear after submitting code.</p>}</section>:
+ <section className="panel section-panel"><div className="eyebrow">ACCOUNT</div><h1>Profile</h1><div className="profile-details"><div className="avatar large-avatar">{user.name?.[0]?.toUpperCase()}</div><p><strong>Name:</strong> {user.name}</p><p><strong>Email:</strong> {user.email}</p><p><strong>Role:</strong> {user.role}</p><button className="start-button" onClick={logout}>Logout</button></div></section>}
+ </div></section></main>;
+}
+
+
+========== .\src\index.css ==========
+
+:root {
+  --text: #6b6375;
+  --text-h: #08060d;
+  --bg: #fff;
+  --border: #e5e4e7;
+  --code-bg: #f4f3ec;
+  --accent: #aa3bff;
+  --accent-bg: rgba(170, 59, 255, 0.1);
+  --accent-border: rgba(170, 59, 255, 0.5);
+  --social-bg: rgba(244, 243, 236, 0.5);
+  --shadow:
+    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.18px;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #9ca3af;
+    --text-h: #f3f4f6;
+    --bg: #16171d;
+    --border: #2e303a;
+    --code-bg: #1f2028;
+    --accent: #c084fc;
+    --accent-bg: rgba(192, 132, 252, 0.15);
+    --accent-border: rgba(192, 132, 252, 0.5);
+    --social-bg: rgba(47, 48, 58, 0.5);
+    --shadow:
+      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+  }
+
+  #social .button-icon {
+    filter: invert(1) brightness(2);
+  }
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  width: 1126px;
+  max-width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  border-inline: 1px solid var(--border);
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.24px;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}
+
+
+========== .\src\CodeEditor.jsx ==========
+
+import { useEffect, useState } from "react";
+import "./CodeEditor.css";
+const API="http://localhost:8080/api";
+const examples={Java:`public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, VirtualLab!");\n    }\n}`,C:`#include <stdio.h>\nint main() {\n    printf("Hello, VirtualLab!\\n");\n    return 0;\n}`,"C++":`#include <iostream>\nusing namespace std;\nint main() { cout << "Hello, VirtualLab!" << endl; return 0; }`,Python:`print("Hello, VirtualLab!")`,JavaScript:`console.log("Hello, VirtualLab!");`};
+const ids={Java:62,C:50,"C++":54,Python:71,JavaScript:63};const exts={Java:"java",C:"c","C++":"cpp",Python:"py",JavaScript:"js"};
+export default function CodeEditor({user,onSubmission,onBack}){
+ const [assignment,setAssignment]=useState(null),[language,setLanguage]=useState("Java"),[code,setCode]=useState(examples.Java),[input,setInput]=useState(""),[output,setOutput]=useState(""),[loading,setLoading]=useState(false),[status,setStatus]=useState("Ready");
+ useEffect(()=>{try{const raw=localStorage.getItem("virtuallab-selected-problem");const p=raw?JSON.parse(raw):null;setAssignment(p);if(p?.starterCode)setCode(p.starterCode)}catch(e){console.error("Assignment load error",e)}},[]);
+ async function runCode(submit=true){if(!code.trim()){setOutput("Please enter code first.");return}setLoading(true);setOutput("");setStatus("Running...");let result={},display="";try{const response=await fetch(`${API}/code/run`,{method:"POST",headers:{"Content-Type":"application/json",...(user?.token?{Authorization:`Bearer ${user.token}`}:{})},body:JSON.stringify({language,languageId:ids[language],sourceCode:code,stdin:input})});const raw=await response.text();try{result=raw?JSON.parse(raw):{}}catch{result={message:raw}}if(!response.ok)throw new Error(result.message||`Code runner returned HTTP ${response.status}`);display=result.output??result.stdout??result.stderr??result.compileOutput??result.message??"Program finished without output.";display=typeof display==="string"?display:JSON.stringify(display,null,2);setOutput(display);setStatus(result.status?.description||result.status||"Finished");if(submit&&user?.token){const saved=await fetch(`${API}/submissions`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${user.token}`},body:JSON.stringify({assignmentId:assignment?.id||null,assignmentTitle:assignment?.title||"Practice problem",language,sourceCode:code,stdin:input,output:display,status:result.status?.description||result.status||"Finished"})});const sr=await saved.text();let sd={};try{sd=sr?JSON.parse(sr):{}}catch{}if(!saved.ok)throw new Error(sd.message||`Code ran, but submission save failed (${saved.status})`);if(onSubmission)await onSubmission()}}catch(e){const msg=e.message||"Unknown error";setOutput(msg.includes("Failed to fetch")?"Cannot reach backend at localhost:8080. Ensure Spring Boot is running and check the browser Network tab.":msg);setStatus("Error")}finally{setLoading(false)}}
+ return <section className="vl-editor"><div className="vl-editor-heading"><div><span className="vl-editor-eyebrow">VIRTUALLAB IDE</span><h2>{assignment?.title||"Code Editor"}</h2><p>{assignment?.description||"Write, run and submit your code."}</p></div><span className="vl-editor-status">{status}</span></div>{assignment&&<div className="panel" style={{marginBottom:16,padding:16}}><strong>Problem statement</strong><p>{assignment.description||"No additional instructions."}</p>{assignment.dueDate&&<small>Due: {assignment.dueDate}</small>}</div>}<div className="vl-editor-toolbar"><label htmlFor="vl-language">Language</label><select id="vl-language" value={language} onChange={e=>{setLanguage(e.target.value);setCode(examples[e.target.value]);setOutput("");setStatus("Ready")}} disabled={loading}>{Object.keys(examples).map(x=><option key={x}>{x}</option>)}</select><button className="vl-run-button" onClick={()=>runCode(false)} disabled={loading}>{loading?"Running...":"â–¶ Run Code"}</button><button className="gradient-button" onClick={()=>runCode(true)} disabled={loading}>{loading?"Saving...":"Submit Code"}</button>{onBack&&<button className="start-button" onClick={onBack}>Back</button>}</div><div className="vl-editor-workspace"><div className="vl-code-panel"><div className="vl-panel-title">â— main.{exts[language]}</div><textarea className="vl-code-input" aria-label="Source code editor" spellCheck={false} value={code} onChange={e=>setCode(e.target.value)} disabled={loading}/></div><div className="vl-side-panels"><div className="vl-output-panel"><div className="vl-panel-title">Program Input (stdin)</div><textarea className="vl-small-input" placeholder="Enter program input..." value={input} onChange={e=>setInput(e.target.value)} disabled={loading}/></div><div className="vl-output-panel"><div className="vl-panel-title">Output / Console</div><pre className="vl-output-text">{output||"Your program output will appear here."}</pre></div></div></div><div className="vl-editor-footer"><span>{language}</span><span>VirtualLab â€¢ Run Code executes; Submit Code saves code and output for teacher review.</span></div></section>
+}
+
+
+========== .\src\CodeEditor.css ==========
+
+
+.vl-editor {
+  width: 100%;
+  min-width: 0;
+  padding: 24px;
+  color: #e7edff;
+  background: #0b1020;
+  border: 1px solid #273252;
+  border-radius: 18px;
+  box-sizing: border-box;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.vl-editor * {
+  box-sizing: border-box;
+}
+
+.vl-editor-heading,
+.vl-editor-toolbar,
+.vl-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.vl-editor-heading h2 {
+  margin: 6px 0;
+  font-size: 25px;
+}
+
+.vl-editor-heading p {
+  margin: 0;
+  color: #929fbe;
+  font-size: 14px;
+}
+
+.vl-editor-eyebrow {
+  color: #8b9bff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.vl-editor-status {
+  padding: 7px 12px;
+  border: 1px solid #334164;
+  border-radius: 20px;
+  color: #b7c5e8;
+  font-size: 12px;
+}
+
+.vl-editor-toolbar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 24px 0 14px;
+}
+
+.vl-editor-toolbar label {
+  color: #aebbd9;
+  font-size: 13px;
+}
+
+.vl-editor-toolbar select {
+  min-width: 130px;
+  padding: 10px 12px;
+  border: 1px solid #344267;
+  border-radius: 9px;
+  color: #f0f3ff;
+  background: #141d34;
+}
+
+.vl-run-button {
+  margin-left: auto;
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(100deg, #5568f4, #8a52e8);
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.vl-run-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.vl-editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(230px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.vl-code-panel,
+.vl-output-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #293654;
+  border-radius: 12px;
+  background: #080d19;
+}
+
+.vl-panel-title {
+  padding: 12px 14px;
+  border-bottom: 1px solid #293654;
+  color: #b9c6e4;
+  background: #111a2d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vl-panel-title span {
+  color: #7187ff;
+}
+
+.vl-code-input {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  padding: 18px;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  color: #dce7ff;
+  background: transparent;
+  font: 14px/1.8 Consolas, "Courier New", monospace;
+  tab-size: 4;
+  white-space: pre;
+  overflow: auto;
+}
+
+.vl-side-panels {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vl-small-input {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  padding: 12px;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  color: #e1e9ff;
+  background: transparent;
+  font: 13px/1.6 Consolas, monospace;
+}
+
+.vl-output-text {
+  min-height: 200px;
+  max-height: 310px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: #a8f0c6;
+  font: 13px/1.7 Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vl-editor-footer {
+  margin-top: 14px;
+  color: #8492b2;
+  font-size: 11px;
+}
+
+@media (max-width: 800px) {
+  .vl-editor {
+    padding: 14px;
+  }
+
+  .vl-editor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vl-code-input {
+    min-height: 300px;
+  }
+
+  .vl-run-button {
+    margin-left: 0;
+  }
+}
+
+
+========== .\index.html ==========
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>virtuallab-frontend</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+
+========== .\vite.config.js ==========
+
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})

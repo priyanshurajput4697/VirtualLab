@@ -1,0 +1,22 @@
+VIRTUALLAB — ONE PROJECT PACKAGE
+
+1) MySQL: make sure MySQL service is running. In MySQL Workbench/terminal run database.sql once.
+2) Configure database password for the backend terminal before starting it. PowerShell example:
+   $env:DB_PASSWORD="YOUR_MYSQL_ROOT_PASSWORD"
+   cd virtuallab-backend
+   .\mvnw.cmd spring-boot:run
+   Keep this terminal open. Backend: http://localhost:8080
+3) Open a SECOND terminal:
+   cd virtuallab-frontend
+   npm install
+   npm run dev -- --port 5174
+   Keep this terminal open and open the URL Vite prints (normally http://localhost:5174).
+4) Register a TEACHER account, log out, register a STUDENT account. Both use the same database and can use separate browser profiles if you want to stay signed in as both.
+5) Teacher: Assignments → create assignment. Student: refresh/login → Assignments → Start Assignment. Choose language, write code, Run Code to test, then Submit Code to store code/output. Teacher → Submissions to review.
+6) Dashboard search filters live results across assignments, practice problems, and submissions. Day streak is calculated from recorded submission dates (not from opening the app).
+
+NOTES
+- Code execution requires an internet connection to the Judge0 public service used by the existing backend. The backend itself does not execute untrusted code locally.
+- This package uses environment variables for DB credentials; do not commit your password to GitHub.
+- If you already have the backend running on port 8080, stop the old Java process/terminal before starting this version, otherwise the new endpoints will not be loaded.
+- This code package has been assembled from the existing project, but cannot be tested against your personal MySQL installation from here. Check backend startup logs for database errors.
