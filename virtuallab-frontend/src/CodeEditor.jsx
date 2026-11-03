@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "./CodeEditor.css";
-const API="http://localhost:8080/api";
+const API = "https://virtuallab-13.onrender.com";
 const examples={Java:`public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, VirtualLab!");\n    }\n}`,C:`#include <stdio.h>\nint main() {\n    printf("Hello, VirtualLab!\\n");\n    return 0;\n}`,"C++":`#include <iostream>\nusing namespace std;\nint main() { cout << "Hello, VirtualLab!" << endl; return 0; }`,Python:`print("Hello, VirtualLab!")`,JavaScript:`console.log("Hello, VirtualLab!");`};
 const ids={Java:62,C:50,"C++":54,Python:71,JavaScript:63};const exts={Java:"java",C:"c","C++":"cpp",Python:"py",JavaScript:"js"};
 export default function CodeEditor({user,onSubmission,onBack}){

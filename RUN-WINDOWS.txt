@@ -5,7 +5,7 @@ VIRTUALLAB — ONE PROJECT PACKAGE
    $env:DB_PASSWORD="YOUR_MYSQL_ROOT_PASSWORD"
    cd virtuallab-backend
    .\mvnw.cmd spring-boot:run
-   Keep this terminal open. Backend: http://localhost:8080
+   Keep this terminal open. Backend: http://https://virtuallab-13.onrender.com
 3) Open a SECOND terminal:
    cd virtuallab-frontend
    npm install
